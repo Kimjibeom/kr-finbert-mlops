@@ -8,7 +8,7 @@ AI 팀에서 월 1~2회 업데이트하는 모델을 전달받아, 전담 운영
 
 ## 프로젝트 개요
 
-금융 뉴스나 리포트 등 한국어 텍스트를 입력하면, 해당 텍스트의 감성을 **긍정(positive) / 부정(negative) / 중립(neutral)**으로 분류하는 REST API 서비스입니다.
+금융 뉴스나 리포트 등 한국어 텍스트를 입력하면, 해당 텍스트의 감성을 긍정(positive) / 부정(negative) / 중립(neutral)으로 분류하는 REST API 서비스입니다.
 
 - **모델**: [snunlp/KR-FinBert-SC](https://huggingface.co/snunlp/KR-FinBert-SC) (BERT-base 기반 한국어 금융 도메인 감성 분류)
 - **추론 환경**: CPU 전용 — GPU 없이도 단일 요청 50~80ms 수준의 응답 속도
