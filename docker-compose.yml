@@ -1,0 +1,131 @@
+# ============================================================
+# docker-compose.yml — 로컬 개발 및 스테이징 환경
+#
+# 설계 근거:
+# 1. 단일 명령(docker compose up)으로 전체 스택 구동.
+# 2. FastAPI 앱, Prometheus, Grafana, Loki를 통합하여
+#    로컬에서도 프로덕션과 동일한 관측 가능성 확보.
+# 3. Grafana는 Prometheus + Loki 데이터 소스를 프로비저닝하여
+#    수동 설정 불필요.
+# ============================================================
+
+services:
+  # ── FastAPI 감성 분석 API ──
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kr-finbert-api
+    ports:
+      - "8000:8000"
+    environment:
+      - MODEL_NAME=snunlp/KR-FinBert-SC
+      - TORCH_THREADS=4
+      - INFERENCE_WORKERS=2
+    # 헬스 체크: K8s probe와 동일한 엔드포인트 사용
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s  # 모델 로딩 시간 고려 (CPU 환경에서 ~60-90초)
+    restart: unless-stopped
+    # 리소스 제한: 호스트 자원 과다 사용 방지
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 4G
+        reservations:
+          cpus: "2.0"
+          memory: 2G
+    networks:
+      - monitoring
+    # JSON 로그 드라이버: Loki가 직접 수집
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "kr-finbert-api"
+
+  # ── Prometheus — 메트릭 수집 ──
+  # 이유: 오픈소스 TSDB, 풀 기반 수집으로 서비스 코드 변경 불필요.
+  # /metrics 엔드포인트를 15초 간격으로 스크래핑.
+  prometheus:
+    image: prom/prometheus:v2.53.3
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"  # 15일 보관 (디스크 절약)
+      - "--web.enable-lifecycle"              # /-/reload 활성화
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # ── Grafana — 시각화 대시보드 ──
+  # 이유: Prometheus + Loki 통합 시각화.
+  # 프로비저닝으로 데이터 소스 자동 등록.
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=kr-finbert-2024  # 초기 비밀번호
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # ── Loki — 로그 수집 ──
+  # 이유: ELK 대비 경량 (메모리 ~100MB), Grafana 네이티브 통합.
+  # 5명 소규모 팀에서 ELK 운영 오버헤드는 과도함.
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # ── Promtail — 로그 전달 에이전트 ──
+  # 이유: Docker 컨테이너 로그를 Loki로 전달.
+  # Fluent Bit 대비 Loki 네이티브 프로토콜로 설정 단순.
+  promtail:
+    image: grafana/promtail:3.3.2
+    container_name: promtail
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    restart: unless-stopped
+    depends_on:
+      - loki
+    networks:
+      - monitoring
+
+# ── 네트워크 ──
+networks:
+  monitoring:
+    driver: bridge
+
+# ── 볼륨 (데이터 영속성) ──
+volumes:
+  prometheus-data:
+  grafana-data:
+  loki-data:

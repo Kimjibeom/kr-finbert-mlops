@@ -1,0 +1,162 @@
+# ============================================================
+# Kubernetes Deployment — KR-FinBert 감성 분석 서비스
+#
+# 설계 근거:
+# 1. replicas: 3 — 가용성 99.5% 보장의 핵심.
+#    - 2개 이상의 Pod가 항상 Ready 상태를 유지해야 하며,
+#    - Rolling Update 중에도 1개 Pod가 서비스를 유지.
+#    - N+1 여유분으로 단일 노드 장애에도 서비스 지속.
+# 2. RollingUpdate 전략:
+#    - maxSurge: 1 → 업데이트 시 최대 4개 Pod 동시 실행
+#    - maxUnavailable: 0 → 업데이트 중 서비스 중단 없음 (Zero Downtime)
+# 3. Readiness/Liveness Probe:
+#    - /health 엔드포인트로 모델 로딩 상태까지 확인
+#    - initialDelaySeconds: 90 → BERT 모델 로딩 시간 (CPU ~60-90초) 고려
+# 4. Resource Limits:
+#    - CPU 2코어, 메모리 3Gi → BERT-base 모델 추론에 충분
+#    - requests로 최소 보장 자원 확보
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kr-finbert-api
+  namespace: ml-serving
+  labels:
+    app: kr-finbert-api
+    version: v1
+    team: ml-platform
+spec:
+  replicas: 3  # 가용성 99.5% 보장: 최소 2개 Pod 상시 가동
+  selector:
+    matchLabels:
+      app: kr-finbert-api
+  
+  # ── Rolling Update 전략 ──
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1          # 한 번에 1개씩 새 Pod 생성
+      maxUnavailable: 0    # 업데이트 중 서비스 중단 없음 (Zero Downtime)
+  
+  # ── 최소 가동 시간 ──
+  # 새 Pod가 Ready 상태를 120초 이상 유지해야 rollout 성공으로 판정.
+  # 이유: 모델 로딩 후 초기 추론에서 JIT 컴파일 워밍업이 필요.
+  minReadySeconds: 30
+  revisionHistoryLimit: 5  # 롤백을 위해 최근 5개 리비전 보관
+  
+  template:
+    metadata:
+      labels:
+        app: kr-finbert-api
+        version: v1
+      annotations:
+        # Prometheus 자동 스크래핑 설정
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # ── 보안 컨텍스트 ──
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+
+      # ── Anti-Affinity ──
+      # 이유: Pod들을 서로 다른 노드에 분산하여
+      # 단일 노드 장애 시에도 서비스 지속.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - kr-finbert-api
+                topologyKey: kubernetes.io/hostname
+
+      # ── 그레이스풀 종료 ──
+      # 이유: 진행 중인 추론 요청이 완료될 때까지 대기
+      terminationGracePeriodSeconds: 60
+
+      containers:
+        - name: kr-finbert-api
+          image: ghcr.io/kimjibeom/kr-finbert-mlops:latest
+          imagePullPolicy: Always
+
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+
+          # ── 환경 변수 ──
+          env:
+            - name: MODEL_NAME
+              value: "snunlp/KR-FinBert-SC"
+            - name: TORCH_THREADS
+              value: "4"
+            - name: INFERENCE_WORKERS
+              value: "2"
+            # Pod 이름을 로그에 포함하여 디버깅 용이
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+
+          # ── 리소스 제한 ──
+          # BERT-base (110M params) CPU 추론 기준:
+          # - 메모리: 모델 ~440MB + 토크나이저 ~50MB + 오버헤드 → 2Gi 충분
+          # - CPU: 추론 시 2코어 활용 (torch.set_num_threads)
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 3Gi
+
+          # ── Readiness Probe ──
+          # 이유: 모델이 완전히 로드되기 전에는 트래픽을 받지 않도록 보호.
+          # /health 엔드포인트가 model_loaded=true를 반환해야 Ready.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 90   # 모델 로딩 대기 (CPU ~60-90초)
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+
+          # ── Liveness Probe ──
+          # 이유: 프로세스가 살아있지만 응답 불가(deadlock 등) 상태 감지.
+          # readiness보다 관대한 설정으로 불필요한 재시작 방지.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 120  # 모델 로딩 + 워밍업 후 시작
+            periodSeconds: 15
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5       # 5회 연속 실패 시 재시작
+
+          # ── Startup Probe ──
+          # 이유: 초기 시작 시 liveness probe의 조기 킬 방지.
+          # BERT 모델 다운로드 + 로딩에 최대 5분까지 허용.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30     # 30 * 10s = 최대 5분 대기

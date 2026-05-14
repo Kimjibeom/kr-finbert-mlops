@@ -1,0 +1,36 @@
+# ============================================================
+# kr-finbert-mlops 의존성 목록
+# 선정 근거: 각 라이브러리는 프로덕션 안정성이 검증되었고,
+# CPU 추론 환경에서의 경량 서빙에 최적화된 조합입니다.
+# ============================================================
+
+# --- 웹 프레임워크 ---
+# FastAPI: 비동기 I/O 기반, OpenAPI 자동 문서화, 타입 검증 내장
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# --- ML 모델 ---
+# transformers + torch(CPU): snunlp/KR-FinBert-SC 추론용
+# ONNX Runtime은 향후 최적화 시 대체 가능하나, 호환성 우선으로 PyTorch 사용
+transformers==4.47.1
+torch==2.5.1+cpu
+
+# --- 데이터 직렬화 / 검증 ---
+pydantic==2.10.4
+
+# --- 모니터링 ---
+# Prometheus 클라이언트: /metrics 엔드포인트를 통한 메트릭 노출
+prometheus-client==0.21.1
+prometheus-fastapi-instrumentator==7.0.2
+
+# --- 로깅 ---
+# python-json-logger: 구조화된 JSON 로그 출력 (ELK/Loki 파싱 용이)
+python-json-logger==3.2.1
+
+# --- 테스트 ---
+pytest==8.3.4
+httpx==0.28.1
+
+# --- 유틸리티 ---
+# gunicorn: 프로덕션 WSGI/ASGI 서버 (uvicorn worker 관리)
+gunicorn==23.0.0

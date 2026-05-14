@@ -1,0 +1,65 @@
+# ============================================================
+# Loki 설정
+#
+# 설계 근거:
+# 1. 파일 시스템 기반 스토리지: S3/GCS 없이 단일 노드에서 동작.
+# 2. 보관 기간 30일: 금융 서비스 감사 요건 최소 충족.
+# 3. BoltDB Shipper: Loki 권장 인덱스 엔진, 메모리 효율적.
+# 4. ELK 대비 Loki의 장점:
+#    - 10x 적은 메모리 사용 (인덱스는 레이블만 대상)
+#    - Grafana 네이티브 통합으로 별도 Kibana 불필요
+#    - 5명 팀에서 ELK 운영은 과도한 오버헤드
+# ============================================================
+
+auth_enabled: false  # 단일 테넌트 환경
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: info
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: "2024-01-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# ── 보관 정책 ──
+# 30일 보관 후 자동 삭제 → 디스크 공간 관리
+limits_config:
+  retention_period: 720h  # 30일
+  max_query_length: 721h
+  max_query_parallelism: 2
+  ingestion_rate_mb: 10
+  ingestion_burst_size_mb: 20
+
+# ── 컴팩션 ──
+# 이유: 오래된 인덱스/청크를 병합하여 디스크 사용량 감소
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+
+# ── 쿼리 설정 ──
+query_range:
+  align_queries_with_step: true
+
+analytics:
+  reporting_enabled: false

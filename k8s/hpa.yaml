@@ -1,0 +1,69 @@
+# ============================================================
+# Kubernetes HPA (Horizontal Pod Autoscaler)
+#
+# 설계 근거:
+# 1. minReplicas: 2 — 가용성 99.5% 최소 요건.
+#    1개 Pod 장애 시에도 나머지 1개가 서비스 유지.
+# 2. maxReplicas: 6 — CPU 추론 환경에서의 리소스 한계 고려.
+#    BERT-base Pod당 ~2CPU + 3Gi → 6개 = 12CPU + 18Gi 필요.
+# 3. CPU 기반 스케일링:
+#    - targetAverageUtilization: 60% → 버스트 트래픽 여유분 40% 확보.
+#    - 60%는 일반적으로 CPU-bound 워크로드의 적정 임계값.
+# 4. Behavior 설정:
+#    - Scale Up: 60초 안정화 → 급격한 스케일링 방지 (flapping 방지)
+#    - Scale Down: 300초 안정화 → 트래픽 감소 후 성급한 축소 방지
+#    - maxPolicies로 한 번에 최대 2개 Pod씩만 변경
+# ============================================================
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: kr-finbert-api-hpa
+  namespace: ml-serving
+  labels:
+    app: kr-finbert-api
+    team: ml-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: kr-finbert-api
+
+  minReplicas: 2  # 가용성 보장 최소 Pod 수
+  maxReplicas: 6  # CPU 추론 환경 리소스 한계
+
+  metrics:
+    # CPU 사용률 기반 스케일링
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60  # 60% 이상 시 스케일 아웃
+
+    # 메모리 사용률 보조 메트릭
+    # 이유: BERT 모델 추론 시 배치 크기에 따라 메모리 급증 가능
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75  # 75% 이상 시 스케일 아웃
+
+  # ── 스케일링 동작 제어 ──
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60   # 1분간 관찰 후 스케일 업
+      policies:
+        - type: Pods
+          value: 2                      # 한 번에 최대 2개 Pod 추가
+          periodSeconds: 60
+      selectPolicy: Max
+
+    scaleDown:
+      stabilizationWindowSeconds: 300  # 5분간 관찰 후 스케일 다운
+      policies:
+        - type: Pods
+          value: 1                      # 한 번에 1개씩만 축소 (보수적)
+          periodSeconds: 120
+      selectPolicy: Min                 # 가장 보수적인 정책 선택

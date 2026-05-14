@@ -1,0 +1,42 @@
+# ============================================================
+# Prometheus 설정
+#
+# 설계 근거:
+# 1. 15초 스크래핑 간격: 실시간성과 리소스 사용의 균형점.
+#    (5초는 CPU 부하 과다, 30초는 이상 탐지 지연)
+# 2. FastAPI 앱의 /metrics 엔드포인트를 직접 스크래핑.
+# 3. Alertmanager 규칙으로 가용성 SLA 위반 시 자동 알림.
+# ============================================================
+
+global:
+  scrape_interval: 15s      # 기본 스크래핑 간격
+  evaluation_interval: 15s  # 규칙 평가 간격
+  scrape_timeout: 10s       # 스크래핑 타임아웃
+
+# ── 알림 규칙 ──
+rule_files:
+  - "alert_rules.yml"
+
+# ── 스크래핑 대상 ──
+scrape_configs:
+  # FastAPI 앱 메트릭
+  - job_name: "kr-finbert-api"
+    metrics_path: "/metrics"
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["api:8000"]
+        labels:
+          service: "kr-finbert"
+          environment: "production"
+
+  # Prometheus 자체 메트릭 (self-monitoring)
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+# ── Alertmanager 연동 (선택적) ──
+# 실제 Alertmanager가 있을 경우 아래 주석 해제
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ["alertmanager:9093"]
