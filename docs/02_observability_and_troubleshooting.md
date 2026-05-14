@@ -8,7 +8,7 @@
 |------|------|-----------|-----------|
 | **Metrics** | Prometheus | Pull (/metrics, 15초) | 15일 |
 | **Logs** | Loki + Promtail | Push (JSON stdout) | 30일 |
-| **Traces** | 향후 Jaeger 도입 | - | - |
+| **Traces** | Jaeger + OpenTelemetry | Push (OTLP HTTP, 4318) | 기본 14일 |
 
 ### 1.2 핵심 메트릭 (RED Method)
 

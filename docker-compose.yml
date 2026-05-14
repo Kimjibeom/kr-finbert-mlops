@@ -22,6 +22,9 @@ services:
       - MODEL_NAME=snunlp/KR-FinBert-SC
       - TORCH_THREADS=4
       - INFERENCE_WORKERS=2
+      # OpenTelemetry → Jaeger 트레이스 전송 설정
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=kr-finbert-api
     # 헬스 체크: K8s probe와 동일한 엔드포인트 사용
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -59,6 +62,7 @@ services:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
       - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -116,6 +120,24 @@ services:
     restart: unless-stopped
     depends_on:
       - loki
+    networks:
+      - monitoring
+
+  # ── Jaeger — 분산 추적 (Tracing) ──
+  # 이유: Observability 3대 축(Metrics, Logs, Traces) 중 Traces 담당.
+  # all-in-one 이미지는 Collector + Query + UI를 단일 프로세스로 제공하여
+  # 소규모 팀에서 별도 인프라 없이 즉시 사용 가능.
+  # 외부 SaaS 불가 조건 충족 (오픈소스, 자체 호스팅).
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    ports:
+      - "4317:4317"    # OTLP gRPC receiver
+      - "4318:4318"    # OTLP HTTP receiver
+      - "16686:16686"  # Jaeger UI (트레이스 시각화)
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    restart: unless-stopped
     networks:
       - monitoring
 

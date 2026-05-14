@@ -23,6 +23,13 @@ pydantic==2.10.4
 prometheus-client==0.21.1
 prometheus-fastapi-instrumentator==7.0.2
 
+# --- 분산 추적 (Tracing) ---
+# OpenTelemetry: 벤더 중립적 관측 가능성 표준, Jaeger로 트레이스 전송
+# 외부 SaaS 불가 조건에 따라 오픈소스 Jaeger를 수집 백엔드로 사용
+opentelemetry-distro==0.50b0
+opentelemetry-instrumentation-fastapi==0.50b0
+opentelemetry-exporter-otlp==1.29.0
+
 # --- 로깅 ---
 # python-json-logger: 구조화된 JSON 로그 출력 (ELK/Loki 파싱 용이)
 python-json-logger==3.2.1

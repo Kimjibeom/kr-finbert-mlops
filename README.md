@@ -24,7 +24,7 @@ AI 팀에서 월 1~2회 업데이트하는 모델을 전달받아, 전담 운영
 | **CI/CD** | GitHub Actions — 린트, 테스트, Docker 이미지 빌드/푸시, K8s 매니페스트 자동 업데이트 |
 | **컨테이너** | Docker 이미지에 모델을 포함하여 네트워크 의존 없이 실행 가능 |
 | **오케스트레이션** | Kubernetes Deployment(3 replicas) + HPA(2~6 Pod 오토스케일링) |
-| **모니터링** | Prometheus(메트릭) + Grafana(대시보드/알림) + Loki(로그) — 외부 SaaS 없이 오픈소스로 구성 |
+| **모니터링** | Prometheus(메트릭) + Grafana(대시보드/알림) + Loki(로그) + Jaeger(분산 추적) — 외부 SaaS 없이 오픈소스로 구성 |
 
 ---
 
@@ -44,6 +44,7 @@ kr-finbert-mlops/
 │   └── hpa.yaml
 ├── monitoring/                     # 모니터링 설정
 │   ├── prometheus.yml
+│   ├── alert_rules.yml
 │   └── loki-config.yml
 ├── docs/                           # 설계 및 운영 문서
 │   ├── 01_architecture_and_decision.md
@@ -64,7 +65,7 @@ kr-finbert-mlops/
 docker compose up -d
 ```
 
-API, Prometheus, Grafana, Loki가 한 번에 구동됩니다.
+API, Prometheus, Grafana, Loki, Jaeger가 한 번에 구동됩니다.
 
 ### 감성 분석 요청 예시
 
@@ -89,6 +90,7 @@ curl -X POST http://localhost:8000/predict \
 | API 문서 (Swagger) | http://localhost:8000/docs | |
 | Prometheus | http://localhost:9090 | |
 | Grafana | http://localhost:3000 | ID: admin / PW: kr-finbert-2024 |
+| Jaeger UI | http://localhost:16686 | 분산 추적 시각화 |
 
 ---
 
@@ -101,6 +103,64 @@ pytest tests/ -v
 ```
 
 모델을 모킹하여 실행하므로 CI 환경에서도 모델 다운로드 없이 테스트 가능합니다.
+
+---
+
+## 실행 결과 증적
+
+### 1. 모델 서빙 API
+
+> Docker Compose를 통해 API 서버를 구동한 후, `/predict` 엔드포인트로 감성 분석 요청을 수행한 결과입니다.
+
+**API 응답 결과:**
+
+<!-- 아래에 실제 curl 요청 및 응답 결과 캡처를 삽입하세요 -->
+```
+[실행 결과 캡처 삽입 영역]
+- docker compose up -d 실행 로그
+- curl /health 응답 결과
+- curl /predict 요청 및 JSON 응답 결과
+```
+
+**Swagger UI 화면:**
+
+<!-- 아래에 http://localhost:8000/docs 접속 화면 캡처를 삽입하세요 -->
+```
+[Swagger UI 캡처 삽입 영역]
+```
+
+### 2. 컨테이너화
+
+> Dockerfile 빌드 및 Docker Compose 전체 스택 구동 결과입니다.
+
+<!-- 아래에 docker compose ps 출력 및 docker images 결과를 삽입하세요 -->
+```
+[실행 결과 캡처 삽입 영역]
+- docker compose ps 출력 (모든 서비스 healthy/running 상태)
+- docker images | grep kr-finbert 출력
+```
+
+### 3. 자동화된 테스트
+
+> pytest를 통한 API 엔드포인트 자동화 테스트 실행 결과입니다.
+
+<!-- 아래에 pytest 실행 로그를 삽입하세요 -->
+```
+[실행 결과 캡처 삽입 영역]
+- pytest tests/ -v 전체 출력
+```
+
+### 4. 모니터링 (Prometheus + Grafana + Jaeger)
+
+> Observability 3대 축(Metrics, Logs, Traces)이 정상 동작하는 화면 캡처입니다.
+
+<!-- 아래에 각 모니터링 도구의 UI 캡처를 삽입하세요 -->
+```
+[실행 결과 캡처 삽입 영역]
+- Prometheus Targets 화면 (kr-finbert-api UP 상태)
+- Grafana 대시보드 화면
+- Jaeger UI 트레이스 조회 화면
+```
 
 ---
 

@@ -1,0 +1,82 @@
+# ============================================================
+# Prometheus Alert Rules — KR-FinBert 서비스 알림 규칙
+#
+# 설계 근거:
+# 1. 가용성 99.5% SLA 위반을 사전 감지하기 위한 4가지 핵심 규칙.
+# 2. for 절로 일시적 스파이크에 의한 오탐(false positive) 방지.
+# 3. severity 레이블로 알림 채널 라우팅 (critical → 즉시, warning → 업무 시간).
+# 4. 이 파일은 prometheus.yml의 rule_files에서 참조됨.
+# ============================================================
+
+groups:
+  - name: kr-finbert-alerts
+    rules:
+
+      # ── 1. 에러율 SLA 위반 ──
+      # 조건: 5분간 5xx 에러율 > 0.5%
+      # 근거: 99.5% 가용성 = 에러율 0.5% 이하 유지 필수.
+      #       5분 윈도우로 순간적 네트워크 오류 등 일시적 스파이크 필터링.
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          / sum(rate(http_requests_total[5m])) > 0.005
+        for: 5m
+        labels:
+          severity: critical
+          service: kr-finbert-api
+        annotations:
+          summary: "에러율 SLA 위반 (>0.5%)"
+          description: "5분간 5xx 에러율이 0.5%를 초과했습니다. 즉시 확인이 필요합니다."
+          runbook_url: "https://github.com/Kimjibeom/kr-finbert-mlops/blob/main/docs/02_observability_and_troubleshooting.md#51-api-응답-없음"
+
+      # ── 2. 높은 응답 지연 ──
+      # 조건: P99 응답시간 > 500ms (5분 지속)
+      # 근거: CPU 추론 기준 정상 P99 ~120ms.
+      #       500ms 초과 시 모델 추론 이상 또는 리소스 부족 의심.
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.99,
+            rate(http_request_duration_seconds_bucket[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: kr-finbert-api
+        annotations:
+          summary: "P99 응답시간 500ms 초과"
+          description: "P99 응답시간이 500ms를 초과하여 5분 이상 지속 중입니다. TORCH_THREADS 및 리소스 현황을 점검하세요."
+          runbook_url: "https://github.com/Kimjibeom/kr-finbert-mlops/blob/main/docs/02_observability_and_troubleshooting.md#52-느린-응답"
+
+      # ── 3. 가용 Pod 부족 ──
+      # 조건: Ready 상태 Pod < 2개 (1분 지속)
+      # 근거: 가용성 99.5% 보장을 위해 최소 2개 Pod 상시 가동 필수.
+      #       1개 이하로 떨어지면 단일 장애점(SPOF) 발생.
+      #       1분 윈도우: Rolling Update 중 일시적 감소는 허용하되,
+      #       지속적 부족은 즉시 알림.
+      - alert: InsufficientPods
+        expr: |
+          kube_deployment_status_replicas_available{
+            deployment="kr-finbert-api"} < 2
+        for: 1m
+        labels:
+          severity: critical
+          service: kr-finbert-api
+        annotations:
+          summary: "가용 Pod 2개 미만 — 가용성 위험"
+          description: "kr-finbert-api의 가용 Pod 수가 2개 미만으로 1분 이상 지속 중입니다. 노드 상태 및 Deployment를 확인하세요."
+
+      # ── 4. 메모리 사용률 초과 ──
+      # 조건: 컨테이너 메모리 사용률 > 90% (5분 지속)
+      # 근거: BERT-base 모델 ~440MB + 추론 버퍼.
+      #       90% 초과 시 OOM Kill 위험 → 사전 경고로 스케일 아웃 또는
+      #       배치 크기 조정 유도.
+      - alert: HighMemoryUsage
+        expr: |
+          container_memory_usage_bytes /
+          container_spec_memory_limit_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          service: kr-finbert-api
+        annotations:
+          summary: "컨테이너 메모리 사용률 90% 초과"
+          description: "메모리 사용률이 90%를 초과하여 OOM Kill 위험이 있습니다. 배치 요청 크기 제한 또는 스케일 아웃을 검토하세요."

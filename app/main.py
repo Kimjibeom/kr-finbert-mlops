@@ -7,11 +7,13 @@ app/main.py — FastAPI 애플리케이션 진입점
 3. 구조화된 JSON 로깅 → Loki/ELK에서 필드 기반 검색 가능.
 4. /health 엔드포인트로 K8s readiness/liveness probe 지원.
 5. CORS 미들웨어 → 프론트엔드 직접 호출 시 대비.
+6. OpenTelemetry + Jaeger로 분산 추적 → Observability 3대 축 완성.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -20,6 +22,12 @@ from typing import AsyncGenerator
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from prometheus_fastapi_instrumentator import Instrumentator
 from pythonjsonlogger import json as json_logger
 
@@ -106,6 +114,43 @@ instrumentator = Instrumentator(
     inprogress_labels=True,
 )
 instrumentator.instrument(app).expose(app, endpoint="/metrics")
+
+
+# ── OpenTelemetry 분산 추적 설정 ───────────────────────
+# 이유: Observability 3대 축(Metrics, Logs, Traces) 중 Traces를 구현.
+# 외부 SaaS 불가 조건에 따라 오픈소스 Jaeger를 수집 백엔드로 사용.
+# OTLP HTTP 프로토콜로 트레이스를 Jaeger Collector에 전송.
+def _setup_tracing(app: FastAPI) -> None:
+    """OpenTelemetry TracerProvider를 초기화하고 FastAPI에 계측을 적용.
+
+    - Resource: 서비스 이름을 포함하여 Jaeger UI에서 식별 가능
+    - BatchSpanProcessor: 스팬을 배치로 전송하여 네트워크 오버헤드 최소화
+    - OTLPSpanExporter(HTTP): gRPC 대비 방화벽 친화적, 설정 단순
+    """
+    otlp_endpoint = os.getenv(
+        "OTEL_EXPORTER_OTLP_ENDPOINT", "http://jaeger:4318"
+    )
+    service_name = os.getenv("OTEL_SERVICE_NAME", "kr-finbert-api")
+
+    resource = Resource.create({"service.name": service_name})
+    provider = TracerProvider(resource=resource)
+
+    otlp_exporter = OTLPSpanExporter(
+        endpoint=f"{otlp_endpoint}/v1/traces",
+    )
+    provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+    trace.set_tracer_provider(provider)
+
+    # FastAPI의 모든 HTTP 요청에 자동으로 스팬 생성
+    FastAPIInstrumentor.instrument_app(app)
+
+    logger.info(
+        "OpenTelemetry 초기화 완료",
+        extra={"otlp_endpoint": otlp_endpoint, "service_name": service_name},
+    )
+
+
+_setup_tracing(app)
 
 
 # ── 요청 로깅 미들웨어 ────────────────────────────────
