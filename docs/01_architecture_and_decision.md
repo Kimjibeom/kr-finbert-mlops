@@ -16,34 +16,56 @@
 
 ### 1.2 전체 아키텍처 설계도
 
-> 전체 설계도는 Draw.io를 사용하여 별도 작성 후 이미지 삽입 예정입니다.
+```mermaid
+graph TB
+    subgraph "Development & CI/CD"
+        Developer[MLOps Engineer] -- "Git Push" --> GitHub[GitHub Repository]
+        subgraph "GitHub Actions"
+            CI[Lint & Test] --> Build[Docker Build & Model Embed]
+            Build --> Push[Push to GHCR]
+            Push --> Manifest[Update K8s Manifest]
+        end
+        GitHub --> CI
+    end
 
-![전체 아키텍처 설계도](architecture.png)
+    subgraph "Kubernetes Cluster (ml-serving)"
+        Ingress[K8s Ingress / LB] -- "HTTPS Request" --> SVC[Service: kr-finbert-api]
+        
+        subgraph "Pod Replicas (HPA 2~6)"
+            Pod1[Pod #1: FastAPI + KR-FinBert]
+            Pod2[Pod #2: FastAPI + KR-FinBert]
+            Pod3[Pod #3: FastAPI + KR-FinBert]
+        end
+        
+        SVC --> Pod1
+        SVC --> Pod2
+        SVC --> Pod3
+    end
 
-**텍스트 기반 아키텍처 다이어그램:**
+    subgraph "Observability Stack (Self-Hosted)"
+        subgraph "Monitoring"
+            Prom[Prometheus] -- "Pull Metrics" --> SVC
+            Grafana[Grafana Dashboard] -- "Query" --> Prom
+        end
 
-```
-Client → [K8s Ingress / LB]
-              │
-     ┌────────┼────────┐
-     ▼        ▼        ▼
-  Pod#1    Pod#2    Pod#3     ← HPA (2~6 pods)
-  FastAPI  FastAPI  FastAPI
-  +BERT    +BERT    +BERT
-     │        │        │
-     └────────┼────────┘
-              │ /metrics, traces
-              ▼
-    ┌─────────────────────────────┐
-    │ Prometheus (메트릭, 15초)    │
-    │ Jaeger (분산 추적, OTLP)    │
-    │ Loki (로그, JSON stdout)    │
-    └──────────┬──────────────────┘
-               ▼
-         Grafana (대시보드 + 알림)
+        subgraph "Logging"
+            Loki[Loki] -- "Store Logs" --> Promtail[Promtail]
+            Promtail -- "Collect stdout" --> Pod1
+            Grafana -- "Query" --> Loki
+        end
 
-GitHub Actions CI/CD:
-  Push → Lint → Test → Build → Push → K8s Manifest Update
+        subgraph "Tracing"
+            Jaeger[Jaeger] -- "Receive Spans" --> Pod1
+            Grafana -- "Query" --> Jaeger
+        end
+    end
+
+    %% Styles
+    style Developer fill:#f9f,stroke:#333
+    style GitHub fill:#fff,stroke:#333
+    style Ingress fill:#bbf,stroke:#333
+    style SVC fill:#bbf,stroke:#333
+    style Grafana fill:#f96,stroke:#333
 ```
 
 ### 1.3 모델 전달 프로세스 및 전제 조건
