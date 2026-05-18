@@ -115,39 +115,44 @@ pytest tests/ -v
 **API 응답 결과:**
 
 <!-- 아래에 실제 curl 요청 및 응답 결과 캡처를 삽입하세요 -->
-```
-[실행 결과 캡처 삽입 영역]
-- docker compose up -d 실행 로그
-- curl /health 응답 결과
-- curl /predict 요청 및 JSON 응답 결과
-```
+![API 응답 결과](images/api_response.png)
 
 **Swagger UI 화면:**
 
 <!-- 아래에 http://localhost:8000/docs 접속 화면 캡처를 삽입하세요 -->
-```
-[Swagger UI 캡처 삽입 영역]
-```
+![Swagger UI](images/swagger_ui.png)
 
 ### 2. 컨테이너화
 
 > Dockerfile 빌드 및 Docker Compose 전체 스택 구동 결과입니다.
 
 <!-- 아래에 docker compose ps 출력 및 docker images 결과를 삽입하세요 -->
-```
-[실행 결과 캡처 삽입 영역]
-- docker compose ps 출력 (모든 서비스 healthy/running 상태)
-- docker images | grep kr-finbert 출력
-```
+![Docker PS](images/docker_ps.png)
+![Docker Images](images/docker_images.png)
 
 ### 3. 자동화된 테스트
 
 > pytest를 통한 API 엔드포인트 자동화 테스트 실행 결과입니다.
 
 <!-- 아래에 pytest 실행 로그를 삽입하세요 -->
-```
-[실행 결과 캡처 삽입 영역]
-- pytest tests/ -v 전체 출력
+![Pytest 실행결과](images/pytest_result.png)
+
+```text
+================================= test session starts =================================
+platform linux -- Python 3.10.12, pytest-8.3.4, pluggy-1.6.0
+collected 9 items                                                                     
+
+tests/test_main.py::test_health_check[asyncio] PASSED                           [ 11%]
+tests/test_main.py::test_health_check_model_not_loaded[asyncio] PASSED          [ 22%]
+tests/test_main.py::test_predict_success[asyncio] PASSED                        [ 33%]
+tests/test_main.py::test_predict_empty_text[asyncio] PASSED                     [ 44%]
+tests/test_main.py::test_predict_missing_field[asyncio] PASSED                  [ 55%]
+tests/test_main.py::test_batch_predict_success[asyncio] PASSED                  [ 66%]
+tests/test_main.py::test_batch_predict_empty_list[asyncio] PASSED               [ 77%]
+tests/test_main.py::test_metrics_endpoint[asyncio] PASSED                       [ 88%]
+tests/test_main.py::test_openapi_schema[asyncio] PASSED                         [100%]
+
+================================== 9 passed in 2.45s ==================================
 ```
 
 ### 4. 모니터링 (Prometheus + Grafana + Jaeger)
@@ -155,12 +160,9 @@ pytest tests/ -v
 > Observability 3대 축(Metrics, Logs, Traces)이 정상 동작하는 화면 캡처입니다.
 
 <!-- 아래에 각 모니터링 도구의 UI 캡처를 삽입하세요 -->
-```
-[실행 결과 캡처 삽입 영역]
-- Prometheus Targets 화면 (kr-finbert-api UP 상태)
-- Grafana 대시보드 화면
-- Jaeger UI 트레이스 조회 화면
-```
+![Prometheus Targets](images/prometheus.png)
+![Grafana Dashboard](images/grafana.png)
+![Jaeger Traces](images/jaeger.png)
 
 ---
 
