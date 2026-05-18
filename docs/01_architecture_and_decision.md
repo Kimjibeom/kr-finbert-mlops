@@ -16,6 +16,8 @@
 
 ### 1.2 전체 아키텍처 설계도
 
+![전체 아키텍처 설계도](MLOps_Pipeline.png)
+
 ```mermaid
 graph TB
     subgraph "Development & CI/CD"
